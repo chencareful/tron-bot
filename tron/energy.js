@@ -1,36 +1,17 @@
-// tron/energy.js
-import tronWeb from './tronWeb.js'
+const tronWeb = require('./tronWeb')
 
-/**
- * 冻结 TRX 获取能量或带宽
- * @param {number} amountTRX - 要冻结的 TRX 数量
- * @param {string} resource - "ENERGY" 或 "BANDWIDTH"
- * @param {string} receiver - 接收冻结资源的地址（默认给自己）
- */
-export async function freezeTRX(amountTRX, resource = 'ENERGY', receiver = process.env.OWNER_ADDRESS) {
+async function freezeEnergy(userAddress) {
+  const amountToFreeze = 10 * 1e6 // 10 TRX
   try {
-    const amountSun = tronWeb.toSun(amountTRX)
-    const duration = 3  // 冻结天数
-
-    const tx = await tronWeb.transactionBuilder.freezeBalance(
-      amountSun,
-      duration,
-      resource,
-      receiver
-    )
-
-    const signedTx = await tronWeb.trx.sign(tx)
-    const result = await tronWeb.trx.sendRawTransaction(signedTx)
-
-    if (result.result) {
-      console.log(`✅ 成功冻结 ${amountTRX} TRX 为 ${resource}，目标地址: ${receiver}`)
-    } else {
-      console.error(`❌ 冻结失败`, result)
-    }
-
-    return result.result
+    const tx = await tronWeb.transactionBuilder.freezeBalanceV2(amountToFreeze, 'ENERGY')
+    const signed = await tronWeb.trx.sign(tx)
+    const result = await tronWeb.trx.sendRawTransaction(signed)
+    console.log(`⚡ 成功为 ${userAddress} 冻结 ${amountToFreeze / 1e6} TRX 用于能量`)
+    return result
   } catch (err) {
-    console.error(`❌ freezeTRX 出错:`, err)
-    return false
+    console.error('❌ 冻结能量失败：', err.message)
+    return null
   }
 }
+
+module.exports = { freezeEnergy }

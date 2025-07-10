@@ -1,55 +1,41 @@
-// tron/monitor.js
-import tronWeb from './tronWeb.js'
-import { isProcessed, markProcessed } from '../db/sqlite.js'
-import { isBlacklisted } from '../telegram/blacklist.js'
-import { isMember } from '../db/sqlite.js'
-import { transferTRX } from './transfer.js'
-import { getUSDTContract } from './utils.js'
+const tronWeb = require('./tronWeb')
+const { isProcessed, markProcessed } = require('../db/sqlite')
+const { sendTRX } = require('./transfer')
 
-const OWNER = process.env.OWNER_ADDRESS
-const USDT_CONTRACT = process.env.USDT_CONTRACT
+const USDT_CONTRACT = 'TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf'
+const OWNER_ADDRESS = tronWeb.address.fromPrivateKey(process.env.OWNER_PRIVATE_KEY)
 
-// 定时监听函数（每 5 秒轮询一次）
-export function startMonitor() {
+function startMonitor() {
   console.log('📡 启动 USDT 监听...')
 
-  setInterval(async () => {
+  const options = {
+    eventName: 'Transfer',
+    fromBlock: 'latest'
+  }
+
+  const eventWatcher = setInterval(async () => {
     try {
-      const contract = await getUSDTContract()
-      const events = await contract.getPastEvents('Transfer', {
-        fromBlock: 'latest'
-      })
+      const events = await tronWeb.getEventResult(USDT_CONTRACT, options)
 
-      for (const e of events) {
-        const txID = e.transaction
-        const from = tronWeb.address.fromHex(e.result.from)
-        const to = tronWeb.address.fromHex(e.result.to)
-        const amount = parseInt(e.result.value) / 1_000_000
+      for (const event of events) {
+        const { transaction_id, result } = event
+        const to = result.to
+        const amount = parseInt(result.value) / 1e6
 
-        // 是否是转给我们的地址？
-        if (to !== OWNER) continue
-
-        if (await isProcessed(txID)) continue
-        if (await isBlacklisted(from)) {
-          console.log(`🚫 黑名单地址 ${from} 发来 USDT，已忽略`)
-          continue
+        if (to === OWNER_ADDRESS) {
+          isProcessed(transaction_id, (processed) => {
+            if (!processed) {
+              console.log(`💰 收到 ${amount} USDT（TX: ${transaction_id}）`)
+              sendTRX(event)
+              markProcessed(transaction_id)
+            }
+          })
         }
-
-        if (!(await isMember(from))) {
-          console.log(`⛔ 非会员地址 ${from}，拒绝兑换`)
-          continue
-        }
-
-        console.log(`💰 收到来自 ${from} 的 USDT: ${amount}`)
-
-        // ✅ 发送 TRX 给用户（闪兑后）
-        await transferTRX(from, amount)
-
-        // ✅ 标记为已处理
-        await markProcessed(txID)
       }
-    } catch (err) {
-      console.error('监听失败:', err)
+    } catch (e) {
+      console.error('监听错误：', e.message)
     }
   }, 5000)
 }
+
+module.exports = { startMonitor }

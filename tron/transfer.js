@@ -1,32 +1,24 @@
-// tron/transfer.js
-import tronWeb from './tronWeb.js'
-import { swapUSDTtoTRX } from './swap.js'
-import { sleep, toSun } from './utils.js'
+const tronWeb = require('./tronWeb')
+const { getExchangeRate } = require('./swap')
 
-export async function transferTRX(userAddress, usdtAmount) {
+async function sendTRX(event) {
+  const toAddress = tronWeb.address.fromHex(event.result.from)
+  const usdtAmount = parseInt(event.result.value) / 1e6
+
+  const rate = await getExchangeRate()
+  const profitRate = 1.1 // +10% 利润
+  const trxAmount = Math.floor(usdtAmount * rate * profitRate * 1e6)
+
   try {
-    console.log(`🔁 正在处理兑换：${usdtAmount} USDT -> TRX，地址: ${userAddress}`)
+    const tx = await tronWeb.transactionBuilder.sendTrx(toAddress, trxAmount)
+    const signedTx = await tronWeb.trx.sign(tx)
+    const broadcast = await tronWeb.trx.sendRawTransaction(signedTx)
 
-    // 步骤 1：兑换 USDT -> TRX（SunSwap 闪兑）
-    const trxAmount = await swapUSDTtoTRX(usdtAmount)
-
-    if (!trxAmount || trxAmount < 1) {
-      console.error(`❌ 闪兑失败，兑换结果为空或过低`)
-      return
-    }
-
-    // 步骤 2：向用户地址发送 TRX
-    const tx = await tronWeb.trx.sendTransaction(userAddress, toSun(trxAmount))
-
-    if (tx.result) {
-      console.log(`✅ 已成功发送 ${trxAmount} TRX 至 ${userAddress}`)
-    } else {
-      console.error(`❌ 转账失败`, tx)
-    }
-
-    // 可选延迟，避免频繁调用（防封）
-    await sleep(1000)
-  } catch (err) {
-    console.error(`❌ transferTRX 出错:`, err)
+    console.log(`🚀 自动发送 ${trxAmount / 1e6} TRX 给 ${toAddress}`)
+    console.log('交易哈希：', broadcast.txid)
+  } catch (e) {
+    console.error('❌ 发送 TRX 失败：', e.message)
   }
 }
+
+module.exports = { sendTRX }
